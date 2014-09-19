@@ -93,11 +93,36 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  	int64_t start = timer_ticks ();
+  /*int64_t start = timer_ticks ();*/
 
- 	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks) 
-    	thread_yield ();
+	ASSERT (intr_get_level () == INTR_ON);
+   /*	while (timer_elapsed (start) < ticks) 
+  	thread_yield ();*/
+  	
+  //  printf("%d\n",ticks);
+  
+  /*if the ticks value is invalid i.e negative number return there itself*/
+  if(ticks <=0 )
+  {
+   	return;
+  }
+    
+  //   printf("SHRI RAMA JAYAM\n");
+  
+  /* I need to disable the interrupt for doing the following:-*/
+  enum intr_level old_level = intr_disable();
+  
+  /*1) to calculate the number of ticks by adding the number of ticks from the OS start with the ticks yet needed to wake up from sleep.*/
+  thread_current()->ticks = timer_ticks()+ticks;
+  
+  /*2) to insert it into the sleeping thread list as per order of the smallest number of ticks*/
+  list_insert_ordered(&sleeping_threads_list,&thread_current()->elem,(list_less_func *) &cmp_ticks,NULL);
+  
+  /*3)now to block this thread that is sleeping, for ticks-time */
+  thread_block();
+  
+  /*now again enable the interrupt i.e set it back to the old level.*/
+  intr_set_level(old_level); 
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
