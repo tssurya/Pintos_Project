@@ -623,7 +623,7 @@ void priority_check (void)
   if(thread_current()->priority < t->priority)
   {
 		thread_yield();
-	}
+  }
 }
 
 bool cmp_priority (const struct list_elem *a,const struct list_elem *b,void *aux UNUSED)
