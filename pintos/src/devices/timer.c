@@ -116,6 +116,7 @@ timer_sleep (int64_t ticks)
   thread_current()->ticks = timer_ticks()+ticks;
   
   /*2) to insert it into the sleeping thread list as per order of the smallest number of ticks*/
+  //sleeping_threads_list is declared above.
   list_insert_ordered(&sleeping_threads_list,&thread_current()->elem,(list_less_func *) &cmp_ticks,NULL);
   
   /*3)now to block this thread that is sleeping, for ticks-time */
@@ -201,6 +202,31 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick();
+  //printf("I am inside the timer interrrupt\n");
+  
+  //getting the first element from the list.
+  struct list_elem *e = list_begin(&sleeping_threads_list);
+  
+  //loop to go through the list.
+  while (e != list_end(&sleeping_threads_list))
+  {
+  	//printf("I am inside the while loop\n");
+  	struct thread *t = list_entry(e, struct thread, elem);  //extracting the thread part of the element.    
+  	//printf("%d\n",ticks);
+   	//printf("%d\n",t->ticks);
+      
+    //if current threads tick value is greater than the global ticks value, break thre itself.
+    if (ticks < t->ticks)
+	  {
+	    break;
+	  }
+	  
+    list_remove(e); // remove from sleep list
+    thread_unblock(t); // Unblock and add to ready list
+    e = list_begin(&sleeping_threads_list);//get the next element.
+  }
+  // Tests if thread still has max priority among the unblocked threads.
+  priority_check(); //defined in thread.c
 }
   
 
