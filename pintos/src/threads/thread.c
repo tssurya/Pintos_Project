@@ -616,25 +616,16 @@ void priority_check (void)
     thread_ticks++;
     if ( thread_current()->priority < t->priority || (thread_ticks >= TIME_SLICE && thread_current()->priority == t->priority) )
     {
-	    intr_yield_on_return();
-	  }
+	intr_yield_on_return();
+    }
     return;
   }
   if(thread_current()->priority < t->priority)
   {
-		thread_yield();
+	thread_yield();
   }
 }
 
-bool cmp_priority (const struct list_elem *a,const struct list_elem *b,void *aux UNUSED)
-{
-  struct thread *ta = list_entry(a, struct thread, elem);
-  struct thread *tb = list_entry(b, struct thread, elem);
-  if (ta->priority > tb->priority)
-  {
-    return true;
-  }
-  return false;
-}
+
 
 
