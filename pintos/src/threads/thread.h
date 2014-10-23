@@ -116,7 +116,12 @@ struct thread
   	
   	/*list element required to donate the priority to the thread.donation_elem is there for every thread in the donationlist and this helps in the donation of the priority to the thread on which this depends upon.infact this is what gets inserted into the donation list by every thread.*/
   	struct list_elem donation_element;
-  	
+		
+		//extra features added for advanced scheduling.
+		int niceness;/*determines how nice it should be to the other threads. This helps in deciding how much CPU time should be alloted to a thread in comparision to other threads.*/
+		
+		int recent_cpu_ticks;/* number of clock ticks recently used by this thread. This determines which thread to be run when there are multiple threads of same priority; in which case the thread with the minimum recent_cpu_ticks is taken. */
+		  	
   };
 
 /* If false (default), use round-robin scheduler.
@@ -147,16 +152,20 @@ void thread_yield (void);
 typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);
 
+//modified these functions for priority scheduling.
 int thread_get_priority (void);
 void thread_set_priority (int);
 
+//modified these functions for advanced scheduling.
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
 //added functions for alarm clock
 bool cmp_ticks(const struct list_elem *a,const struct list_elem *b,void *aux UNUSED);
 void priority_check (void);
+
 //added functions for priority scheduling
 bool cmp_priority (const struct list_elem *a,const struct list_elem *b, void *aux UNUSED);
 void thread_recall_donation(struct thread *t);
@@ -167,6 +176,14 @@ static bool thread_donation_cmp(const struct list_elem *a,const struct list_elem
 void thread_donate_priority(struct thread *t);
 void thread_yield_to_max(void);
 static int thread_max_priority(void);
+
+//added functions for advanced scheduling
+void thread_calculate_priority_bsd(struct thread *t, void *aux UNUSED);
+static void thread_update_bsd_status(void);
+static void thread_update_recent_cpu(struct thread *t, void *aux UNUSED);
+static int thread_get_ready_threads(void);
+static void schedule_update_sleeping_threads(void);
+static void schedule_update_thread_priorities(void);
 
 
 #endif /* threads/thread.h */

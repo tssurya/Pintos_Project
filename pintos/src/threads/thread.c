@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "threads/fixed-point.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -11,6 +12,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -27,6 +29,8 @@ static struct list ready_list;
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
+
+static struct list sleeping_threads_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -49,6 +53,7 @@ struct kernel_thread_frame
 static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
+static real load_avg;           /* load average for BSD scheduling. */
 
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
@@ -92,7 +97,9 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&sleeping_threads_list);
   
+  load_avg = 0;//setting the load_avg of the bsd_scheduler to 0. 
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -135,6 +142,17 @@ thread_tick (void)
 #endif
   else
     kernel_ticks++;
+    
+  //if it is bsd scheduler;
+  if(thread_mlfqs)
+  {
+  	t->recent_cpu_ticks += fp_create(1 , 1);
+   	/*update the recent cpu and load_avg on ticks landing every new second. Mainly after every time quantum we need to update the bsd status of that thread.*/
+		if((timer_ticks() % TIMER_FREQ) ==0)
+		{
+			thread_update_bsd_status();
+		}
+	}
 
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
@@ -367,33 +385,42 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  /* needed only for bsd scheduler  i.e multilevel feedback queue. */
+  ASSERT(thread_mlfqs);
+  //set the current thread's value to nice.
+  thread_current() -> niceness = nice;
+  //calculate the priority once again for this thread after getting the nice value using the bsd scheduling formula. 
+  thread_calculate_priority_bsd(thread_current(),NULL);
+  //reinsert this thread again into the ready list.
+  thread_reinsert_ready_list(thread_current());
+  //call upon the function to see if this thread has to yielded due to higher priority.
+  thread_yield_to_max();
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  ASSERT(thread_mlfqs);
+  return thread_current()-> niceness;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  ASSERT(thread_mlfqs);
+  return 100*fp_round_nearest(load_avg);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  ASSERT(thread_mlfqs);
+  return 100*fp_round_nearest(thread_current()->recent_cpu_ticks);
 }
-
+
 /* Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -567,6 +594,9 @@ thread_schedule_tail (struct thread *prev)
 static void
 schedule (void) 
 {
+	if(thread_mlfqs)
+		schedule_update_thread_priorities();
+	schedule_update_sleeping_threads();
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
@@ -798,4 +828,77 @@ thread_max_priority(void)
   }
   intr_set_level(old_level);
   return return_value;
+}
+
+//adding functions required for advanced scheduling.
+
+/*calculates the current thread's priority using the bsd scheduling forumula*/
+void thread_calculate_priority_bsd (struct thread *t, void *aux UNUSED)
+{
+	//exit if it is not a thread.
+	ASSERT(is_thread(t));
+	//do it only if it is bsd scheduling i.e if the condition is true.
+	ASSERT(thread_mlfqs);
+	t->priority = PRI_MAX - fp_round_nearest(t->recent_cpu_ticks /4) - (t->niceness*2);
+}
+
+//to update the recent cpu ticks and load average used in bsd scheduling.
+static void thread_update_bsd_status(void)
+{
+	ASSERT(thread_mlfqs);
+	
+	int ready_threads = thread_get_ready_threads();
+	load_avg = fp_multiply(fp_create(59,60),load_avg);
+	load_avg += fp_create(1,60)*ready_threads;
+	
+	//update recent cpu ticks for all the threads by calling this function.
+	thread_foreach(thread_update_recent_cpu, NULL);
+}
+
+/*to return the number of ready threads present*/
+static int thread_get_ready_threads(void)
+{
+	ASSERT(thread_mlfqs);
+	int ready_threads = list_size(&ready_list);
+	if(running_thread()!=idle_thread)
+		ready_threads++;
+	return ready_threads;
+}
+
+static void thread_update_recent_cpu(struct thread* t, void *aux UNUSED)
+{
+	ASSERT(thread_mlfqs);
+	
+	real c = fp_divide(2*load_avg, 2*load_avg + fp_create(1,1));
+	c = fp_multiply(t->recent_cpu_ticks,c);
+	c += fp_create(t->niceness,1);
+	t->recent_cpu_ticks = c;
+}
+
+/*this is to mainly calculate the priorities of all threads and sort the final list.*/
+static void schedule_update_thread_priorities(void)
+{
+	ASSERT(thread_mlfqs);
+	
+	thread_foreach(thread_calculate_priority_bsd,NULL);
+	list_sort(&ready_list,cmp_priority,NULL);
+}
+
+/*updates the sleeping threads to see if any of them are ready to be set unblocked.*/
+static void schedule_update_sleeping_threads(void)
+{
+	int64_t time = timer_ticks();
+	while(list_begin(&sleeping_threads_list)!=list_end(&sleeping_threads_list))
+	{
+		struct thread* front_thread = list_entry(list_begin(&sleeping_threads_list),struct thread, elem);
+		
+		/* Since sleep_list is kept in ascending order of wakeup_time,
+         we need only check that the front elem is not ready to wake.
+         If that's the case, none of the elements are ready. */
+    if(front_thread -> ticks > time)
+    	break;
+    
+    thread_unblock(front_thread);
+    list_pop_front(&sleeping_threads_list);
+   }
 }
