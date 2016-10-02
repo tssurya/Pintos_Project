@@ -1,3 +1,3 @@
 Pintos_Project
 ==============
-This contains the pintos assignment I am currently doing.
+Implemented Alarm Clock, Priority Scheduling and Advanced Scheduling in Pint Operating System.
